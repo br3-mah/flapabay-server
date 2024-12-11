@@ -23,9 +23,11 @@ $app = new Laravel\Lumen\Application(
     dirname(__DIR__)
 );
 
-// $app->withFacades();
+// Enable Facades (for helper functions like config(), view(), etc.)
+$app->withFacades();
 
-// $app->withEloquent();
+// Enable Eloquent ORM for database interaction
+$app->withEloquent();
 
 /*
 |--------------------------------------------------------------------------
@@ -53,32 +55,40 @@ $app->singleton(
 | Register Config Files
 |--------------------------------------------------------------------------
 |
-| Now we will register the "app" configuration file. If the file exists in
-| your configuration directory it will be loaded; otherwise, we'll load
-| the default version. You may register other files below as needed.
+| Load all configuration files from the config directory. This is similar
+| to how it works in Laravel. Make sure you create the "config" folder
+| at the root of your project.
 |
 */
 
-$app->configure('app');
+$app->configure('app');         // App Configuration (name, env, etc.)
+$app->configure('database');    // Database Configuration
+$app->configure('corcel');      // Corcel Configuration (for WordPress integration)
+$app->configure('cache');       // Cache Configuration (optional)
+// $app->configure('mail');        // Mail Configuration (optional)
+// $app->configure('services');    // Services Configuration (optional)
 
 /*
 |--------------------------------------------------------------------------
 | Register Middleware
 |--------------------------------------------------------------------------
 |
-| Next, we will register the middleware with the application. These can
-| be global middleware that run before and after each request into a
-| route or middleware that'll be assigned to some specific routes.
+| Here you can register both global and route-specific middleware.
+| Global middleware runs on every request, and route middleware runs
+| on specific routes as needed.
 |
 */
 
-// $app->middleware([
-//     App\Http\Middleware\ExampleMiddleware::class
-// ]);
+// Global Middleware (runs on every request)
+$app->middleware([
+    // Example of global middleware (uncomment as needed)
+    // App\Http\Middleware\ExampleMiddleware::class,
+]);
 
-// $app->routeMiddleware([
-//     'auth' => App\Http\Middleware\Authenticate::class,
-// ]);
+// Route Middleware (applied to specific routes only)
+$app->routeMiddleware([
+    'auth' => App\Http\Middleware\Authenticate::class,
+]);
 
 /*
 |--------------------------------------------------------------------------
@@ -91,18 +101,24 @@ $app->configure('app');
 |
 */
 
-// $app->register(App\Providers\AppServiceProvider::class);
-// $app->register(App\Providers\AuthServiceProvider::class);
-// $app->register(App\Providers\EventServiceProvider::class);
+// Default Service Providers
+$app->register(App\Providers\AppServiceProvider::class);
+$app->register(App\Providers\AuthServiceProvider::class);
+$app->register(App\Providers\EventServiceProvider::class);
+
+// Custom Service Providers
+$app->register(Irazasyed\Larasupport\Providers\ArtisanServiceProvider::class);
+
+// Example of registering a custom service provider
+// $app->register(App\Providers\CustomServiceProvider::class);
 
 /*
 |--------------------------------------------------------------------------
 | Load The Application Routes
 |--------------------------------------------------------------------------
 |
-| Next we will include the routes file so that they can all be added to
-| the application. This will provide all of the URLs the application
-| can respond to, as well as the controllers that may handle them.
+| Here we load the routes defined in routes/web.php. You can group
+| routes logically in the routes folder as per the project's needs.
 |
 */
 
@@ -111,5 +127,14 @@ $app->router->group([
 ], function ($router) {
     require __DIR__.'/../routes/web.php';
 });
+
+/*
+|--------------------------------------------------------------------------
+| Return The Application
+|--------------------------------------------------------------------------
+|
+| This returns the Lumen application so it can be run.
+|
+*/
 
 return $app;

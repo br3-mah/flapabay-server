@@ -1,0 +1,20 @@
+{
+    "sqltools.connections": [
+        {
+            "mysqlOptions": {
+                "authProtocol": "default",
+                "enableSsl": "Disabled"
+            },
+            "previewLimit": 50,
+            "server": "147.79.101.189",
+            "port": 3306,
+            "driver": "MySQL",
+            "name": "Flapabay",
+            "group": "Online",
+            "database": "flapabay.com_main",
+            "username": "flapabay.com_main",
+            "connectionTimeout": 120,
+            "password": "Dev@FLAPA123"
+        }
+    ]
+}
