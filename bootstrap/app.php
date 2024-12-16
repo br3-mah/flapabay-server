@@ -65,6 +65,7 @@ $app->configure('app');         // App Configuration (name, env, etc.)
 $app->configure('database');    // Database Configuration
 $app->configure('corcel');      // Corcel Configuration (for WordPress integration)
 $app->configure('cache');       // Cache Configuration (optional)
+$app->configure('filesystems');
 // $app->configure('mail');        // Mail Configuration (optional)
 // $app->configure('services');    // Services Configuration (optional)
 

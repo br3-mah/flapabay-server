@@ -5,6 +5,10 @@ namespace App\Http\Controllers;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Str;
 use Laravel\Lumen\Routing\Controller as BaseController;
 
 class AuthController extends BaseController
@@ -92,18 +96,16 @@ class AuthController extends BaseController
                 'meta_key' => 'auth_token',
                 'meta_value' => $token
             ]);
+            // Retrieve the updated user meta details from wp_usermeta
+            $userMeta = DB::table('wp_usermeta')
+                ->where('user_id', $user->ID)
+                ->pluck('meta_value', 'meta_key');
 
             return response()->json([
                 'success' => true,
                 'message' => 'Login successful',
                 'token' => $token,
-                'user' => [
-                    'id' => $user->ID,
-                    'email' => $user->user_email,
-                    'display_name' => $user->display_name,
-                    'first_name' => DB::table('wp_usermeta')->where('user_id', $user->ID)->where('meta_key', 'first_name')->value('meta_value'),
-                    'last_name' => DB::table('wp_usermeta')->where('user_id', $user->ID)->where('meta_key', 'last_name')->value('meta_value'),
-                ]
+                'meta' => $userMeta
             ], 200);
         } catch (\Exception $e) {
             return response()->json([
@@ -113,21 +115,143 @@ class AuthController extends BaseController
             ], 500);
         }
     }
-
     /**
      * Handle the generation and sending of an OTP.
      */
     public function getOtp(Request $request)
     {
+        // Step 1: Validate the request
+        $validator = Validator::make($request->all(), [
+            'email' => 'required|email|string', // 'contact' can be phone number or email
+        ]);
 
+        if ($validator->fails()) {
+            return response()->json(['error' => $validator->errors()], 400);
+        }
+
+        // Step 2: Generate the OTP
+        $otp = rand(100000, 999999); // Generate a 6-digit OTP
+
+        // Step 3: Store the OTP securely with an expiration time
+        $expiresAt = Carbon::now()->addMinutes(5); // Set expiration time to 5 minutes
+        Cache::put('otp_' . $request->contact, $otp, $expiresAt);
+
+        // Step 4: Send the OTP
+        // Example for sending via email
+        // Mail::to($request->contact)->send(new OtpMail($otp));
+
+        // Example for sending via SMS (using Twilio)
+        /*
+        $twilio = new Client(env('TWILIO_SID'), env('TWILIO_TOKEN'));
+        $twilio->messages->create($request->contact, [
+            'from' => env('TWILIO_FROM'),
+            'body' => "Your OTP is: $otp"
+        ]);
+        */
+
+        // Step 5: Return a response
+        return response()->json(['message' => 'OTP sent successfully!'], 200);
     }
+
+
+
+    /**
+     * Handle forgot password functionality.
+     */
+    public function forgotPassword(Request $request)
+    {
+        // Step 1: Validate the request
+        $validator = Validator::make($request->all(), [
+            'email' => 'required|email',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['error' => $validator->errors()], 400);
+        }
+
+        $email = $request->input('email');
+
+        // Step 2: Check if email exists in wp_users
+        $user = DB::table('wp_users')->where('user_email', $email)->first();
+
+        if (!$user) {
+            return response()->json(['error' => 'Email not found'], 404);
+        }
+
+        // Step 3: Generate a unique token
+        $token = Str::random(60);
+
+        // Step 4: Store the token (consider using a password_resets table)
+        // DB::table('password_resets')->insert([
+        //     'email' => $email,
+        //     'token' => $token,
+        //     'created_at' => Carbon::now(),
+        // ]);
+
+        // Step 5: Send reset email
+        $resetLink = url('/api/auth/reset-password?token=' . $token . '&email=' . urlencode($email));
+
+        // Mail::send('emails.reset', ['link' => $resetLink], function ($message) use ($email) {
+        //     $message->to($email);
+        //     $message->subject('Password Reset Request');
+        // });
+
+        // Step 6: Return response
+        return response()->json(['message' => 'Reset email sent successfully'], 200);
+    }
+
 
     /**
      * Handle the password reset process.
      */
     public function resetPassword(Request $request)
     {
+        // Step 1: Validate the request
+        $validator = Validator::make($request->all(), [
+            'email' => 'required|email',
+            'otp' => 'required|string',
+            'new_password' => 'required|string|min:8', // Ensure minimum length for security
+        ]);
 
+        if ($validator->fails()) {
+            return response()->json(['error' => $validator->errors()], 400);
+        }
+
+        $email = $request->input('email');
+        $otp = $request->input('otp');
+        $newPassword = $request->input('new_password');
+
+        // Step 2: Verify the OTP
+        // Assuming OTPs are stored in cache with a key like 'otp_<email>'
+        if (Cache::get('otp_' . $email) !== $otp) {
+            return response()->json(['error' => 'Invalid or expired OTP'], 400);
+        }
+
+        // Step 3: Hash the new password
+        $hashedPassword = password_hash($newPassword, PASSWORD_BCRYPT);
+
+        // Step 4: Update the password in wp_users table
+        try {
+            DB::table('wp_users')->where('user_email', $email)->update([
+                'user_pass' => $hashedPassword,
+                'user_registered' => Carbon::now(), // Optional: Update registration time if needed
+            ]);
+
+            // Optionally, you can remove the OTP from cache after successful reset
+            Cache::forget('otp_' . $email);
+
+            // Step 5: Return a response
+            return response()->json([
+                'success' => true,
+                'message' => 'Password reset successfully'
+            ], 200);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to reset password',
+                'error' => $e->getMessage()
+            ], 500);
+        }
     }
 
 /**
