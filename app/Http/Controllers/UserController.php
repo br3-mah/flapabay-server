@@ -2,11 +2,14 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\User;
+use App\Models\UserDetail;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Laravel\Lumen\Routing\Controller as BaseController;
-
+use League\Flysystem\UnixVisibility\PortableVisibilityConverter;
 class UserController extends BaseController
 {
     public function index(Request $request)
@@ -43,7 +46,7 @@ class UserController extends BaseController
         try {
             $id = $user_id;
             // Find the user by ID from the wp_users table
-            $user = DB::table('wp_users')->where('ID', $id)->first();
+            $user = User::with('details')->where('id', $id)->first();
 
             // Check if user exists
             if (!$user) {
@@ -53,26 +56,9 @@ class UserController extends BaseController
                 ], 404);
             }
 
-            // Optionally, get the user's metadata (like first_name, last_name, etc.)
-            $userMeta = DB::table('wp_usermeta')
-                ->where('user_id', $id)
-                ->pluck('meta_value', 'meta_key');
-
-            // Merge user data with metadata (optional)
-            $userData = [
-                'ID' => $user->ID,
-                'user_login' => $user->user_login,
-                'user_nicename' => $user->user_nicename,
-                'user_email' => $user->user_email,
-                'user_registered' => $user->user_registered,
-                'display_name' => $user->display_name,
-                'first_name' => $userMeta['first_name'] ?? null,
-                'last_name' => $userMeta['last_name'] ?? null,
-            ];
-
             return response()->json([
                 'success' => true,
-                'user' => $userData
+                'user' => $user
             ], 200);
         } catch (\Exception $e) {
             return response()->json([
@@ -88,24 +74,27 @@ class UserController extends BaseController
      */
     public function update(Request $request, $user_id)
     {
+
         try {
             // Validate request data
             $validatedData = Validator::make($request->all(), [
+                // These are in User Model
                 'email' => 'nullable|email',
-                'first_name' => 'nullable|string|max:255',
-                'last_name' => 'nullable|string|max:255',
-                'about_me' => 'nullable|string',
-                'i_live_in' => 'nullable|string',
+                'fname' => 'nullable|string|max:255',
+                'lname' => 'nullable|string|max:255',
+
+                // These are in UserDetail Model
+                'bio' => 'nullable|string',
+                'live_in' => 'nullable|string',
                 'paypal_email' => 'nullable|email',
-                'phone' => 'required|string|max:15',
-                'i_speak' => 'nullable|string',
+                'phone' => 'nullable|string|max:15',
                 'website' => 'nullable|url',
-                'skype_link' => 'nullable|url',
-                'facebook_url' => 'nullable|url',
-                'twitter_url' => 'nullable|url',
-                'linkedin_url' => 'nullable|url',
-                'pinterest_url' => 'nullable|url',
-                'youtube_url' => 'nullable|url',
+                'skype' => 'nullable|url',
+                'facebook' => 'nullable|url',
+                'twitter' => 'nullable|url',
+                'linkedin' => 'nullable|url',
+                'pinterest' => 'nullable|url',
+                'youtube' => 'nullable|url',
             ]);
 
             if ($validatedData->fails()) {
@@ -119,90 +108,26 @@ class UserController extends BaseController
             // Extract validated data
             $data = $validatedData->validated();
 
-            // Prepare data for `wp_users` table
-            $userData = [];
+            // Find the user by ID
+            $user = User::with('details')->findOrFail($user_id);
 
-            if (!empty($data['email'])) {
-                $userData['user_email'] = $data['email'];
+            // Update User model
+            $user->update($data);
+
+            // Update UserDetail model if it exists
+            $userDetail = UserDetail::where('user_id', $user_id)->first();
+            if ($userDetail) {
+                $userDetail->update($data);
+            } else {
+                // Optionally, create a new UserDetail if it doesn't exist
+                $userDetail = UserDetail::create(array_merge($data, ['user_id' => $user_id]));
             }
 
-            if (!empty($data['first_name']) && !empty($data['last_name'])) {
-                $userData['user_nicename'] = strtolower($data['first_name'] . '-' . $data['last_name']);
-                $userData['display_name'] = $data['first_name'] . ' ' . $data['last_name'];
-            }
-
-            // If user data exists, update the wp_users table
-            if (!empty($userData)) {
-                DB::table('wp_users')->where('ID', $user_id)->update($userData);
-            }
-
-            // Prepare data for `wp_usermeta` table
-            $userMeta = [
-                'first_name' => $data['first_name'] ?? null,
-                'last_name' => $data['last_name'] ?? null,
-                'about_me' => $data['about_me'] ?? null,
-                'i_live_in' => $data['i_live_in'] ?? null,
-                'paypal_email' => $data['paypal_email'] ?? null,
-                'phone' => $data['phone'] ?? null,
-                'i_speak' => $data['i_speak'] ?? null,
-                'website' => $data['website'] ?? null,
-                'skype_link' => $data['skype_link'] ?? null,
-                'facebook_url' => $data['facebook_url'] ?? null,
-                'twitter_url' => $data['twitter_url'] ?? null,
-                'linkedin_url' => $data['linkedin_url'] ?? null,
-                'pinterest_url' => $data['pinterest_url'] ?? null,
-                'youtube_url' => $data['youtube_url'] ?? null,
-            ];
-
-            // Remove null values from the user meta data
-            $userMeta = array_filter($userMeta, function ($value) {
-                return !is_null($value);
-            });
-
-            // Insert or update the user meta data in `wp_usermeta`
-            foreach ($userMeta as $metaKey => $metaValue) {
-                // Check if the meta_key already exists for the user
-                $exists = DB::table('wp_usermeta')
-                    ->where('user_id', $user_id)
-                    ->where('meta_key', $metaKey)
-                    ->exists();
-
-                if ($exists) {
-                    // Update the existing meta key
-                    DB::table('wp_usermeta')
-                        ->where('user_id', $user_id)
-                        ->where('meta_key', $metaKey)
-                        ->update(['meta_value' => $metaValue]);
-                } else {
-                    // Insert new meta key
-                    DB::table('wp_usermeta')->insert([
-                        'user_id' => $user_id,
-                        'meta_key' => $metaKey,
-                        'meta_value' => $metaValue
-                    ]);
-                }
-            }
-
-            // Retrieve the updated user details from wp_users
-            $user = DB::table('wp_users')->where('ID', $user_id)->first();
-
-            // Retrieve the updated user meta details from wp_usermeta
-            $userMeta = DB::table('wp_usermeta')
-                ->where('user_id', $user_id)
-                ->pluck('meta_value', 'meta_key');
-
-            $userDetails = [
-                'ID' => $user->ID,
-                'user_email' => $user->user_email,
-                'user_nicename' => $user->user_nicename,
-                'display_name' => $user->display_name,
-                'meta' => $userMeta
-            ];
-
+            // Return the updated user data
             return response()->json([
                 'success' => true,
-                'message' => 'User updated successfully',
-                'user' => $userDetails
+                'message' => 'User  updated successfully',
+                'user' => $user
             ], 200);
         } catch (\Exception $e) {
             return response()->json([
@@ -232,53 +157,24 @@ class UserController extends BaseController
             $file = $request->file('profile_picture');
 
             // Step 3: Generate a unique filename
-            $fileName = uniqid('profile_', true) . '.' . $file->getClientOriginalExtension();
+            $filename = time() . '_' . uniqid() . '.' . $file->getClientOriginalExtension();
 
             // Step 4: Store the file using the 'public' disk and profile-pictures directory
-            $filePath = $file->storeAs('profile-pictures', $fileName, 'public');
+            $filePath = $file->storeAs('profile-pic', $filename, 'public');
 
-            // Step 5: Remove 'public/' from the path to use it as a URL
-            $publicPath = str_replace('public/', '', $filePath);
+            // Step 5: Generate the URL to the uploaded file
+            $fileUrl = Storage::url($filePath);
 
-            // Step 6: Update or Insert custom_picture in the usermeta table
-            $metaKey = 'custom_picture';
-            $metaKey2 = 'small_custom_picture';
-
-            // Check if the custom_picture meta_key exists
-            $existingMeta = DB::table('wp_usermeta')
-                ->where('user_id', $user_id)
-                ->where('meta_key', $metaKey)
-                ->first();
-
-            if ($existingMeta) {
-                // Update existing custom_picture
-                DB::table('wp_usermeta')
-                    ->where('user_id', $user_id)
-                    ->where('meta_key', $metaKey)
-                    ->update(['meta_value' => $publicPath]);
-                DB::table('wp_usermeta')
-                    ->where('user_id', $user_id)
-                    ->where('meta_key', $metaKey2)
-                    ->update(['meta_value' => $publicPath]);
-            } else {
-                // Insert new custom_picture meta_key
-                DB::table('wp_usermeta')->insert([
-                    'user_id' => $user_id,
-                    'meta_key' => $metaKey,
-                    'meta_value' => $publicPath
-                ]);
-                DB::table('wp_usermeta')->insert([
-                    'user_id' => $user_id,
-                    'meta_key' => $metaKey2,
-                    'meta_value' => $publicPath
-                ]);
-            }
+            // Optionally, you can update the user's profile picture path in the database here
+            $user = UserDetail::where('user_id',$user_id)->first();
+            $user->profile_picture_url = $fileUrl; // Assuming you have a profile_picture column
+            $user->save();
 
             // Step 7: Return the uploaded file's path in the response
             return response()->json([
                 'success' => true,
                 'message' => 'Profile picture updated successfully',
-                'file_path' => asset('storage/' . $publicPath), // URL to the image
+                'file_path' => $fileUrl
             ], 200);
         } catch (\Exception $e) {
             return response()->json([

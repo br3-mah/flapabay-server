@@ -24,8 +24,12 @@ $app = new Laravel\Lumen\Application(
 );
 
 // Enable Facades (for helper functions like config(), view(), etc.)
-$app->withFacades();
-
+// $app->withFacades();
+// Add the JWT facade alias to the aliases array
+$app->withFacades(true, [
+    Tymon\JWTAuth\Facades\JWTAuth::class => 'JWTAuth',
+    Tymon\JWTAuth\Facades\JWTFactory::class => 'JWTFactory',
+]);
 // Enable Eloquent ORM for database interaction
 $app->withEloquent();
 
@@ -66,7 +70,7 @@ $app->configure('database');    // Database Configuration
 $app->configure('corcel');      // Corcel Configuration (for WordPress integration)
 $app->configure('cache');       // Cache Configuration (optional)
 $app->configure('filesystems');
-// $app->configure('mail');        // Mail Configuration (optional)
+$app->configure('mail');        // Mail Configuration (optional)
 // $app->configure('services');    // Services Configuration (optional)
 
 /*
@@ -109,6 +113,10 @@ $app->register(App\Providers\EventServiceProvider::class);
 
 // Custom Service Providers
 $app->register(Irazasyed\Larasupport\Providers\ArtisanServiceProvider::class);
+$app->register(Tymon\JWTAuth\Providers\LumenServiceProvider::class);
+$app->register(Illuminate\Mail\MailServiceProvider::class);
+
+
 
 // Example of registering a custom service provider
 // $app->register(App\Providers\CustomServiceProvider::class);

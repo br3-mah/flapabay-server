@@ -19,7 +19,14 @@ class User extends Model implements AuthenticatableContract, AuthorizableContrac
      * @var string[]
      */
     protected $fillable = [
-        'name', 'email',
+        'fname',
+        'lname',
+        'email',
+        'password',
+        'otp',
+        'otp_expires_at',
+        'otp_verified_at',
+        'email_verified_at',
     ];
 
 
@@ -31,4 +38,14 @@ class User extends Model implements AuthenticatableContract, AuthorizableContrac
     protected $hidden = [
         'password',
     ];
+
+    /**
+     * Relationship with the User model.
+     *
+     * @return \Illuminate\Database\Eloquent\Relations\hasOne
+     */
+    public function details()
+    {
+        return $this->hasOne(UserDetail::class);
+    }
 }
