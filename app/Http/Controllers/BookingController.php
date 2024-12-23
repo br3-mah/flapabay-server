@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\DB;
 
 class BookingController extends Controller
 {
+
     public function getBookings()
     {
         try {

@@ -4,12 +4,14 @@ namespace App\Http\Controllers;
 
 use App\Models\User;
 use App\Models\UserDetail;
+use Aws\S3\S3Client;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\Log;
 use Laravel\Lumen\Routing\Controller as BaseController;
-use League\Flysystem\UnixVisibility\PortableVisibilityConverter;
+
 class UserController extends BaseController
 {
     public function index(Request $request)
@@ -138,11 +140,111 @@ class UserController extends BaseController
         }
     }
 
-
-
     public function updateProfilePicture(Request $request, $user_id)
     {
         try {
+            // Validate the incoming request
+            $validatedData = Validator::make($request->all(), [
+                'profile_picture' => 'required|image|mimes:jpeg,png,jpg,gif|max:2048', // Max 2MB
+            ]);
+
+            // Check if validation fails
+            if ($validatedData->fails()) {
+                return response()->json(['error' => $validatedData->errors()], 400);
+            }
+
+            // Retrieve the uploaded file
+            $file = $request->file('profile_picture');
+            $fileName = time() . '_' . $file->getClientOriginalName();
+
+            // Define the local path where the image will be stored temporarily
+            $localPath = storage_path('app/temp/' . $fileName);
+
+            // Store the image locally
+            $file->move(storage_path('app/temp'), $fileName);
+
+            // Define the file path in Wasabi bucket
+            $filePath = 'profile_pictures/' . $fileName;
+
+            // Define your Wasabi S3 endpoint and credentials
+            $endpoint = 'https://s3.us-east-1.wasabisys.com';  // Replace with your Wasabi region endpoint
+            $bucketName = 'flapapic';                     // Replace with your Wasabi bucket name
+            $region = 'us-east-1';                             // Replace with your Wasabi region
+            $accessKey = '0VDI6B63V4LF0TYZK4AX';                      // Replace with your Wasabi access key
+            $secretKey = 'k3D7ecACAl5tanPRAaXHa3UThuBu6rj9CY8OtuTm';                      // Replace with your Wasabi secret key
+
+            // Create an S3 client with the specified configuration for Wasabi
+            $s3Client = new S3Client([
+                'region'     => $region,
+                'version'    => 'latest',
+                'endpoint'   => $endpoint,
+                'credentials' => [
+                    'key'    => $accessKey,
+                    'secret' => $secretKey,
+                ],
+            ]);
+
+            // Attempt to upload the local file to the Wasabi bucket
+            $result = $s3Client->putObject([
+                'Bucket'     => $bucketName,
+                'Key'        => $filePath,
+                'SourceFile' => $localPath,  // Path to the local file
+            ]);
+
+            // Check if the file was successfully uploaded
+            if (!isset($result['ObjectURL'])) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Failed to upload profile picture to Wasabi.',
+                ], 500);
+            }
+
+            // Get the file URL from Wasabi
+            $fileUrl = $result['ObjectURL'];
+
+            // Update the user's profile picture URL in the database
+            $user = UserDetail::where('user_id', $user_id)->first();
+            if (!$user) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'User not found.',
+                ], 404);
+            }
+
+            // Save the file URL to the user's profile
+            $user->profile_picture_url = $fileUrl;
+            $user->save();
+
+            // Delete the local temporary file
+            unlink($localPath);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Profile picture updated successfully.',
+                'file_url' => $fileUrl
+            ], 200);
+        } catch (\Exception $e) {
+            // Log the error for debugging purposes
+            Log::error('Failed to update profile picture: ' . $e->getMessage());
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to update profile picture.',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+
+
+
+
+
+    public function updateProfilePictureBKP(Request $request, $user_id)
+    {
+        try {
+
+            dd($request);
             // Step 1: Validate the incoming request
             $validatedData = Validator::make($request->all(), [
                 'profile_picture' => 'required|image|mimes:jpeg,png,jpg,gif|max:2048', // Max 2MB
@@ -184,8 +286,5 @@ class UserController extends BaseController
             ], 500);
         }
     }
-
-
-
 }
 
